@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>幽霊道路マップ</title>
+<meta name="description" content="決定から何十年もたった都市計画道路と、計画線の上に建つ建物を地図で確かめる（PLATEAU オープンデータ）">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc;
+    --age70: #5b2a86; --age50: #9b5fc0; --age30: #c9a3df; --age0: #e9dcf2;
+    --ghost: #9aa0a6; --bldg: #d1495b; --accent: #5b2a86; --warn-bg: #fff4e5; --warn: #8a4b00; --ok-bg: #eef6ee; --ok: #2e6b2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --panel: #1d1d20; --text: #ececef; --muted: #a0a0a8; --line: #2e2e33;
+      --age70: #c08cf0; --age50: #9b6fd0; --age30: #6e4f93; --age0: #3d2f52;
+      --ghost: #c9ced4; --bldg: #ff6b7d; --accent: #c08cf0; --warn-bg: #3a2a12; --warn: #ffc27a; --ok-bg: #1d2f1d; --ok: #9fd69f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --panel: #1d1d20; --text: #ececef; --muted: #a0a0a8; --line: #2e2e33;
+    --age70: #c08cf0; --age50: #9b6fd0; --age30: #6e4f93; --age0: #3d2f52;
+    --ghost: #c9ced4; --bldg: #ff6b7d; --accent: #c08cf0; --warn-bg: #3a2a12; --warn: #ffc27a; --ok-bg: #1d2f1d; --ok: #9fd69f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  #app { display: grid; grid-template-columns: 380px 1fr; height: 100%; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 16px; }
+  #map { height: 100%; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 18px 0 8px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; line-height: 1.5; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .legend { font-size: 12px; color: var(--muted); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px 12px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; }
+  .controls { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  select { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border-radius: 6px; padding: 5px 8px; margin: 2px 6px 12px 4px; }
+  button, label.tg, input[type=search] { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--bg);
+    color: var(--text); border-radius: 6px; padding: 6px 10px; }
+  button, label.tg { cursor: pointer; }
+  form.search { display: flex; gap: 6px; }
+  form.search input { flex: 1; min-width: 0; }
+  .card { border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.7; margin-top: 8px; border: 1px solid var(--line); }
+  .card.in { background: var(--warn-bg); border-color: transparent; }
+  .card.in b.t { color: var(--warn); }
+  .card.out { background: var(--ok-bg); border-color: transparent; }
+  .card.out b.t { color: var(--ok); }
+  .card ul { margin: 4px 0; padding-left: 18px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 4px; }
+  td { border-bottom: 1px solid var(--line); padding: 5px 4px; vertical-align: top; }
+  td small { color: var(--muted); display: block; }
+  tr.r { cursor: pointer; } tr.r:hover { background: var(--bg); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 44px; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 14px; }
+  .note a, .card a { color: var(--accent); }
+  .maplibregl-popup-content { background: var(--panel); color: var(--text); font-size: 13px; line-height: 1.6; max-width: 300px; }
+  .maplibregl-popup-tip { border-top-color: var(--panel) !important; }
+  @media (max-width: 760px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; }
+    #map { grid-row: 1; } aside { grid-row: 2; border-right: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <h1>幽霊道路マップ</h1>
+    <p class="sub">決定から何十年もたった都市計画道路と、計画線の上に建つ建物</p>
+    <label class="muted" for="city">都市</label>
+    <select id="city" aria-label="都市"></select>
+    <span class="muted" id="sub"></span>
+
+    <h2>この場所は計画道路にかかる？</h2>
+    <form class="search" id="search">
+      <input type="search" id="q" placeholder="住所を入力" aria-label="住所">
+      <button type="submit">調べる</button>
+    </form>
+    <div class="muted" style="margin-top:4px">地図をクリックしても調べられます。</div>
+    <div id="result"></div>
+
+    <h2>概要</h2>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--age70)"></i>決定70年以上</span>
+      <span><i class="sw" style="background:var(--age50)"></i>50–69年</span>
+      <span><i class="sw" style="background:var(--age30)"></i>30–49年</span>
+      <span><i class="sw" style="background:var(--age0)"></i>30年未満</span>
+      <span><i class="sw" style="background:var(--ghost)"></i>まだ道路でない部分（推定）</span>
+      <span><i class="sw" style="background:var(--bldg)"></i>計画線内の建物</span>
+    </div>
+    <div class="controls">
+      <button id="pitch">3D表示</button>
+      <button id="base">航空写真</button>
+      <label class="tg"><input type="checkbox" id="old" checked> 70年以上だけ強調</label>
+    </div>
+
+    <h2>路線（古い順）</h2>
+    <table><thead><tr><th>路線</th><th>決定</th><th>道路化</th><th>建物</th></tr></thead><tbody id="rows"></tbody></table>
+
+    <div class="note" id="method"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+<script>
+const code = new URLSearchParams(location.search).get("city") || "22130";
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const base = `data/${code}_`;
+const fmt = n => n == null || n === "" ? "–" : Number(n).toLocaleString("ja-JP");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const label = p => [p.route_no, p.route_name].filter(Boolean).map(esc).join(" ") || "（名称不明）";
+const isExact = p => p.exact === true || p.exact === "true";
+
+const initialHash = location.hash;  // read before MapLibre starts writing the view into the hash
+const map = new maplibregl.Map({
+  container: "map",
+  style: { version: 8,
+    sources: {
+      gsi: { type: "raster", tiles: ["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 18,
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | 国土交通省 PLATEAU' },
+      photo: { type: "raster", tiles: ["https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg"], tileSize: 256, maxzoom: 18,
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル（全国最新写真）</a> | 国土交通省 PLATEAU' } },
+    layers: [{ id: "gsi", type: "raster", source: "gsi" },
+             { id: "photo", type: "raster", source: "photo", layout: { visibility: "none" } }] },
+  center: [137.73, 34.71], zoom: 12, maxPitch: 70, hash: true,
+});
+map.addControl(new maplibregl.NavigationControl());
+
+function ageColor() {
+  return ["case", [">=", ["get", "age"], 70], css("--age70"), [">=", ["get", "age"], 50], css("--age50"),
+    [">=", ["get", "age"], 30], css("--age30"), css("--age0")];
+}
+async function getJSON(u) { try { const r = await fetch(u); return r.ok ? r.json() : null; } catch { return null; } }
+
+// --- geometry helpers (lon/lat, small distances) ---
+function inRing(pt, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if (((yi > pt[1]) !== (yj > pt[1])) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function polys(g) { return g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []; }
+function contains(g, pt) { return polys(g).some(p => inRing(pt, p[0]) && !p.slice(1).some(h => inRing(pt, h))); }
+function metres(a, b) {
+  const k = Math.PI / 180, x = (b[0] - a[0]) * Math.cos((a[1] + b[1]) / 2 * k) * 6371000 * k, y = (b[1] - a[1]) * 6371000 * k;
+  return Math.hypot(x, y);
+}
+function distToSeg(p, a, b) {
+  const k = Math.cos(p[1] * Math.PI / 180), ax = (a[0] - p[0]) * k, ay = a[1] - p[1], bx = (b[0] - p[0]) * k, by = b[1] - p[1];
+  const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+  const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
+  return metres(p, [p[0] + (ax + t * dx) / k, p[1] + ay + t * dy]);
+}
+function distTo(g, pt) {
+  let d = Infinity;
+  for (const p of polys(g)) for (const ring of p) for (let i = 1; i < ring.length; i++) d = Math.min(d, distToSeg(pt, ring[i - 1], ring[i]));
+  return d;
+}
+function boundsOf(g) {
+  const b = new maplibregl.LngLatBounds();
+  const walk = c => typeof c[0] === "number" ? b.extend(c) : c.forEach(walk);
+  walk(g.coordinates);
+  return b;
+}
+
+let DATA = null, marker = null;
+
+function permitHTML(meta) {
+  const n = meta.max_storeys;
+  return `<b>建てるときは許可が必要です（都市計画法第53条）。</b> ${esc(meta.city)}の許可基準では、次のすべてを満たす建物なら許可されます：
+    <ul><li>階数が${n}以下${n > 2 ? `（法律の原則は2階以下。${esc(meta.city)}は${n}階まで緩和）` : ""}</li>
+    <li>地階がない</li><li>主要構造部が木造・鉄骨造・コンクリートブロック造など（容易に移転・除却できるもの）</li></ul>
+    道路の事業が始まると、建物は移転の対象になります。<br>
+    出典：<a href="${esc(meta.permit_url)}" target="_blank" rel="noopener">${esc(meta.permit_name)}</a><br>
+    問い合わせ：${esc(meta.contact)}`;
+}
+
+function check(lngLat, title) {
+  if (!DATA) return;
+  const pt = [lngLat.lng, lngLat.lat];
+  if (marker) marker.remove();
+  marker = new maplibregl.Marker({ color: css("--accent") }).setLngLat(pt).addTo(map);
+  const hits = DATA.planned.features.filter(f => contains(f.geometry, pt));
+  const el = document.getElementById("result");
+  const where = title ? `<div class="muted">${esc(title)}</div>` : "";
+  if (hits.length) {
+    const p = hits[0].properties;
+    el.innerHTML = `<div class="card in">${where}<b class="t">都市計画道路の計画区域内です</b><br>
+      <b>${label(p)}</b>（計画幅員 ${fmt(p.width_m)} m）<br>
+      ${p.year}年に決定（${p.age}年${isExact(p) ? "" : "以上"}経過）・道路化 約${p.built_pct}%（推定）
+      ${p.on_hold_m ? `<br><span class="tag">廃止手続き保留</span> 2012年の見直しで ${fmt(p.on_hold_m)} m が廃止候補とされ、手続きが保留されています。` : ""}
+      <hr style="border:0;border-top:1px solid var(--line)">${permitHTML(DATA.meta)}
+      <div class="muted" style="margin-top:6px">住所の位置は代表点（町丁目・街区）です。敷地ごとの正確な区域は市の窓口で確認してください。</div></div>`;
+    return;
+  }
+  let best = null, bd = Infinity;
+  for (const f of DATA.planned.features) { const d = distTo(f.geometry, pt); if (d < bd) { bd = d; best = f; } }
+  const near = best && bd <= 50;
+  el.innerHTML = `<div class="card out">${where}<b class="t">計画区域の外です</b><br>
+    ${near ? `ただし <b>${label(best.properties)}</b> の計画区域まで約 ${Math.round(bd)} m です。区域の境界付近で建てる場合は、市の窓口に相談するよう案内されています。` :
+      best ? `最寄りの計画道路：${label(best.properties)}（約 ${fmt(Math.round(bd))} m）` : ""}
+    <div class="muted" style="margin-top:6px">このマップの対象は PLATEAU に収録された都市計画道路だけです。</div></div>`;
+}
+
+document.getElementById("search").onsubmit = async e => {
+  e.preventDefault();
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  const el = document.getElementById("result");
+  el.innerHTML = `<div class="card">検索中…</div>`;
+  const city = DATA?.meta?.city || "";
+  const r = await getJSON("https://msearch.gsi.go.jp/address-search/AddressSearch?q=" + encodeURIComponent(q.includes(city) ? q : city + q));
+  const b = DATA?.meta?.bounds;
+  const hit = (r || []).find(x => { const [lo, la] = x.geometry.coordinates; return !b || (lo >= b[0] - .05 && lo <= b[2] + .05 && la >= b[1] - .05 && la <= b[3] + .05); });
+  if (!hit) { el.innerHTML = `<div class="card">見つかりませんでした。町名や番地を変えて試してください。</div>`; return; }
+  const [lo, la] = hit.geometry.coordinates;
+  map.flyTo({ center: [lo, la], zoom: 17 });
+  check({ lng: lo, lat: la }, hit.properties.title);
+};
+
+getJSON("data/cities.json").then(list => {
+  const sel = document.getElementById("city");
+  (list || [{ code, name: code }]).forEach(c => sel.add(new Option(c.name, c.code, false, c.code === code)));
+  sel.onchange = () => { location.href = "?city=" + sel.value; };
+});
+
+const dataP = Promise.all([
+  getJSON(base + "meta.json"), getJSON(base + "planned.geojson"), getJSON(base + "ghost.geojson"),
+  getJSON(base + "bldg.geojson"), getJSON(base + "routes.json")]);
+const whenStyle = () => new Promise(res => map.isStyleLoaded() ? res() : map.once("style.load", res));
+
+Promise.all([dataP, whenStyle()]).then(([[meta, planned, ghost, bldg, routes]]) => {
+  if (!planned || !meta) { document.getElementById("sub").textContent = "データが見つかりません: " + code; return; }
+  DATA = { meta, planned };
+  document.getElementById("sub").textContent = `PLATEAU ${meta.plateau_year}年度データ`;
+  if (meta.example) document.getElementById("q").placeholder = `住所を入力（例：${meta.example}）`;
+  if (!initialHash) map.fitBounds([[meta.bounds[0], meta.bounds[1]], [meta.bounds[2], meta.bounds[3]]], { padding: 30, duration: 0 });
+
+  map.addSource("planned", { type: "geojson", data: planned });
+  map.addLayer({ id: "planned", type: "fill", source: "planned", paint: { "fill-color": ageColor(), "fill-opacity": 0.75 } });
+  map.addLayer({ id: "planned-line", type: "line", source: "planned", paint: { "line-color": ageColor(), "line-width": 1 } });
+  if (ghost) {
+    map.addSource("ghost", { type: "geojson", data: ghost });
+    map.addLayer({ id: "ghost", type: "fill-extrusion", source: "ghost",
+      paint: { "fill-extrusion-color": css("--ghost"), "fill-extrusion-height": 8, "fill-extrusion-opacity": 0.55 } });
+  }
+  if (bldg) {
+    map.addSource("bldg", { type: "geojson", data: bldg });
+    map.addLayer({ id: "bldg", type: "fill-extrusion", source: "bldg",
+      paint: { "fill-extrusion-color": css("--bldg"), "fill-extrusion-height": ["coalesce", ["get", "h"], 6], "fill-extrusion-opacity": 0.9 } });
+  }
+
+  const f = planned.features.map(x => x.properties);
+  const byId = Object.fromEntries(f.map(p => [p.gml_id, p]));
+  const nbOld = bldg ? bldg.features.filter(b => (byId[b.properties.road_id] || {}).age >= 70).length : null;
+  document.getElementById("stats").innerHTML = [
+    [fmt(f.length), "計画道路の区間"], [fmt(f.filter(p => p.age >= 70).length), "決定から70年以上"],
+    [fmt(meta.buildings), "計画線内の建物"], [fmt(nbOld), "うち70年以上の路線上"]]
+    .map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+
+  const tbody = document.getElementById("rows");
+  (routes || f).slice(0, 100).forEach(p => {
+    const tr = document.createElement("tr"); tr.className = "r";
+    const top = p.route_no || p.route_name || "–", second = p.route_no && p.route_name ? p.route_name : "";
+    tr.innerHTML = `<td>${esc(top)}${second ? `<small>${esc(second)}</small>` : ""}${p.on_hold_m ? `<span class="tag">廃止保留</span>` : ""}</td>
+      <td>${p.year ?? "–"}<small>${p.age ?? "–"}年${isExact(p) ? "" : "以上"}</small></td>
+      <td>${p.built_pct ?? "–"}%<div class="bar"><i style="width:${p.built_pct ?? 0}%"></i></div></td><td>${p.bldg_on_line ?? 0}</td>`;
+    tr.onclick = () => {
+      const ids = new Set(p.gml_ids || [p.gml_id]);
+      const feats = planned.features.filter(x => ids.has(x.properties.gml_id));
+      if (!feats.length) return;
+      const b = new maplibregl.LngLatBounds(); feats.forEach(x => b.extend(boundsOf(x.geometry)));
+      map.fitBounds(b, { padding: 60, maxZoom: 17 });
+    };
+    tbody.appendChild(tr);
+  });
+
+  const v = meta.validation;
+  document.getElementById("method").innerHTML = `
+    <b>データと方法</b><br>
+    決定年：PLATEAU 都市計画決定情報（urf）の当初決定年度・効力発生日。「以上」は変更日しか分からない路線です。<br>
+    道路化：計画道路の中心線に沿って10mごとに横断面をとり、計画幅員の2/3以上が既存の道路面（PLATEAU 道路モデル LOD1）になっている区間の延長の割合。<b>推定値</b>で、公式の整備状況ではありません。<br>
+    ${v ? `検証：${esc(meta.city)}の<a href="${esc(meta.review_url)}" target="_blank" rel="noopener">${esc(meta.review_label)}（${meta.official_year}年）</a>の路線別整備状況と比較。
+      決定年は ${v.year_agree}/${v.year_checked} 路線で一致。道路化の3区分（整備済・一部・未整備）は ${v.class_agree}/${v.status_routes} 路線で一致し、差の中央値は ${Math.round(v.median_abs_diff * 100)}ポイント。
+      公式に整備済の路線は ${v.built_recall} で整備済と推定。${meta.official_year}年以降に整備された区間があると推定は高めに出ます（平均 ${v.mean_diff > 0 ? "+" : ""}${Math.round(v.mean_diff * 100)}ポイント）。<br>` : ""}
+    建物：PLATEAU 建築物モデルのうち、建物面積の20%以上が計画区域内のもの。<br>
+    住所検索：<a href="https://maps.gsi.go.jp/" target="_blank" rel="noopener">国土地理院</a> 住所検索API。<br>
+    出典：国土交通省 PLATEAU、国土地理院 地理院タイル、${esc(meta.city)} 公表資料。作成：UDC2026 応募作品 306。<br>
+    <a href="national.html">全国96都市の「決定からの年数」一覧 →</a>`;
+
+  map.on("click", e => {
+    const hit = map.queryRenderedFeatures(e.point, { layers: ["planned"] })[0];
+    check(e.lngLat);
+    if (!hit) return;
+    const p = hit.properties;
+    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
+      `<b>${label(p)}</b><br>当初決定: ${p.year}年（${p.age}年${isExact(p) ? "" : "以上"}経過）<br>` +
+      `計画幅員: ${fmt(p.width_m)} m ／ 延長: ${fmt(p.length_m)} m<br>` +
+      `道路化（推定・延長）: ${p.built_pct}%（面積では ${p.area_pct}%）` +
+      `${p.official_pct != null && p.official_pct !== "" ? `<br>市の資料（${DATA.meta.official_year}年）: ${p.official_pct}%` : ""}<br>` +
+      `計画線内の建物: ${p.bldg_on_line} 棟` +
+      (p.on_hold_m && p.on_hold_m !== "null" ? `<br><span class="tag">廃止手続き保留 ${fmt(p.on_hold_m)} m</span>` : "") +
+      `<br><span class="muted">${esc(p.start_loc)} → ${esc(p.end_loc)}${p.first_notice ? "<br>当初告示: " + esc(p.first_notice) : ""}</span>`
+    ).addTo(map);
+  });
+  map.on("mouseenter", "planned", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "planned", () => map.getCanvas().style.cursor = "");
+
+  document.getElementById("old").onchange = e => {
+    const photo = !!document.getElementById("base").dataset.photo;
+    map.setPaintProperty("planned", "fill-opacity", photo ? 0.15 : e.target.checked ? ["case", [">=", ["get", "age"], 70], 0.85, 0.25] : 0.75);
+  };
+  document.getElementById("old").dispatchEvent(new Event("change"));
+
+  // ?route=3・3・8 zooms to a route, ?base=photo starts on the aerial photo
+  const rq = params.get("route");
+  if (rq) {
+    const k = rq.normalize("NFKC").replace(/[･・.\s]/g, "");
+    const feats = planned.features.filter(x => String(x.properties.route_no).normalize("NFKC").replace(/[･・.\s]/g, "") === k);
+    if (feats.length) {
+      const b = new maplibregl.LngLatBounds(); feats.forEach(x => b.extend(boundsOf(x.geometry)));
+      if (!initialHash) map.fitBounds(b, { padding: 40, duration: 0 });
+      map.addLayer({ id: "focus", type: "line", source: "planned", filter: ["in", ["get", "gml_id"], ["literal", feats.map(x => x.properties.gml_id)]],
+        paint: { "line-color": "#00e5ff", "line-width": 4 } });
+    }
+  }
+  if (params.get("base") === "photo") setBase(true);
+
+  // shareable lookups: ?q=住所
+  const q0 = new URLSearchParams(location.search).get("q");
+  if (q0) { document.getElementById("q").value = q0; document.getElementById("search").requestSubmit(); }
+  // ?at=lat,lon checks one point (used for shareable links and testing)
+  const at = (new URLSearchParams(location.search).get("at") || "").split(",").map(Number);
+  if (at.length === 2 && at.every(Number.isFinite)) { map.jumpTo({ center: [at[1], at[0]], zoom: Math.max(map.getZoom(), 17) }); check({ lng: at[1], lat: at[0] }); }
+});
+
+const params = new URLSearchParams(location.search);
+function setBase(photo) {
+  map.setLayoutProperty("photo", "visibility", photo ? "visible" : "none");
+  map.setLayoutProperty("gsi", "visibility", photo ? "none" : "visible");
+  if (map.getLayer("planned")) {
+    map.setPaintProperty("planned", "fill-opacity", photo ? 0.15 : 0.75);
+    map.setPaintProperty("planned-line", "line-width", photo ? 2.5 : 1);
+    map.setPaintProperty("planned-line", "line-color", photo ? "#ffd400" : ageColor());
+  }
+  document.getElementById("base").textContent = photo ? "地図" : "航空写真";
+  document.getElementById("base").dataset.photo = photo ? "1" : "";
+}
+document.getElementById("base").onclick = () => setBase(!document.getElementById("base").dataset.photo);
+
+document.getElementById("pitch").onclick = () => {
+  const p = map.getPitch() > 10 ? 0 : 60;
+  map.easeTo({ pitch: p, bearing: p ? -20 : 0 });
+  document.getElementById("pitch").textContent = p ? "2D表示" : "3D表示";
+};
+</script>
+</body>
+</html>

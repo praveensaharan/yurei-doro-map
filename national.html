@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全国の幽霊道路</title>
+<meta name="description" content="PLATEAU 都市計画決定情報から、全国96都市の都市計画道路が決定から何年たったかを集計">
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --faint: #9a9aa0; --line: #e3e1dc; --grid: #ecebe7;
+    --bar: #7b45b0; --track: #ece4f4; --accent: #5b2a86; --note-bg: #fff4e5; --note: #8a4b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --panel: #1d1d20; --text: #ececef; --muted: #a0a0a8; --faint: #77777f; --line: #2e2e33; --grid: #29292d;
+      --bar: #a070d8; --track: #2f2838; --accent: #c08cf0; --note-bg: #3a2a12; --note: #ffc27a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --panel: #1d1d20; --text: #ececef; --muted: #a0a0a8; --faint: #77777f; --line: #2e2e33; --grid: #29292d;
+    --bar: #a070d8; --track: #2f2838; --accent: #c08cf0; --note-bg: #3a2a12; --note: #ffc27a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  a { color: var(--accent); }
+  h1 { font-size: 24px; margin: 4px 0 6px; }
+  h2 { font-size: 16px; margin: 28px 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 8px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile .label { font-size: 12px; color: var(--muted); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-top: 10px; }
+  .note { background: var(--note-bg); color: var(--text); border-radius: 10px; padding: 12px 16px; font-size: 14px; line-height: 1.7; margin-top: 10px; }
+  .note b { color: var(--note); }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart text { fill: var(--muted); font-size: 11px; }
+  .chart .val { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; white-space: nowrap; }
+  .cap { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+  th { text-align: left; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--line); padding: 6px; cursor: pointer; white-space: nowrap; user-select: none; }
+  th[aria-sort="descending"]::after { content: " ↓"; } th[aria-sort="ascending"]::after { content: " ↑"; }
+  td { border-bottom: 1px solid var(--line); padding: 6px; white-space: nowrap; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cell { display: flex; align-items: center; gap: 8px; }
+  .meter { flex: 0 0 90px; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--bar); border-radius: 0 3px 3px 0; }
+  .muted { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  @media (max-width: 640px) { .tiles { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <a href="index.html">← 地図へ</a>
+  <h1>全国の幽霊道路</h1>
+  <p class="sub">都市計画道路は、決定してから何年たっているのか。国土交通省 PLATEAU の都市計画決定情報（交通施設）を収録する都市の計画道路を、すべて集計しました。</p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="note" id="gap"></div>
+
+  <h2>決定した年代別の計画道路</h2>
+  <div class="muted">区間数（PLATEAU の地物数）。変更日しか分からない区間は、その変更年で数えています（実際の決定はそれより前）。グラフにカーソルを当てると数が出ます。</div>
+  <div class="panel chart" id="chart"><div class="tip" id="tip"></div></div>
+
+  <h2>都市別</h2>
+  <div class="muted">見出しをクリックで並べ替え。「決定からの年数」は最低年数の中央値です。</div>
+  <div class="panel tablewrap">
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="pref">都道府県</th><th data-k="city">都市</th><th data-k="features" class="num">区間</th>
+        <th data-k="median_age" class="num">決定からの年数</th><th data-k="p50">50年以上</th><th data-k="p70" aria-sort="descending">70年以上</th>
+        <th data-k="oldest" class="num">最も古い決定</th><th data-k="map">地図</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <p class="muted" style="margin-top:18px">
+    方法：当初決定年度がある場合はそれを使い、なければ効力発生日（種類が「決定」のとき）を使います。「変更」しか分からない区間は、決定年がその日より前と分かるだけなので、年数は最低値です。戦災復興院の告示番号がある区間は1948年以前としました。日付が 0001-01-01 のものや、告示した機関と日付が合わないものは除いています。<br>
+    出典：国土交通省 PLATEAU（都市計画決定情報モデル）、国土交通省「都市計画決定GISデータ（令和7年度）」。UDC2026 応募作品 306。
+  </p>
+</main>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => n == null ? "–" : Number(n).toLocaleString("ja-JP");
+const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+fetch("data/national.json").then(r => r.json()).then(d => {
+  const s = d.summary, g = d.mlit_gap;
+  document.getElementById("tiles").innerHTML = [
+    ["収録都市", fmt(s.cities)], ["計画道路の区間", fmt(s.features)],
+    ["決定から50年以上", pct(s.p50)], ["決定から80年以上の路線", fmt(s.routes_80)]]
+    .map(([l, v]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+
+  document.getElementById("gap").innerHTML =
+    `<b>国のデータには決定日がほとんど入っていません。</b> 国土交通省「都市計画決定GISデータ（令和7年度）」は全国 ${fmt(g.layers)} 自治体・${fmt(g.features)} 本の計画道路を収録していますが、
+     当初決定日（INDate）が入っているのは <b>${g.layers_with_indate} 自治体（区間の ${(g.feature_share_with_indate * 100).toFixed(1)}%）</b>だけです。
+     東京都で計画道路が入っているのは ${g.tokyo_layers} 市（町田市）だけでした。
+     このページの年数は、決定日を持つ PLATEAU の都市計画決定情報（${fmt(s.cities)} 都市）から計算しています。`;
+
+  drawChart(d.decades);
+  let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => {
+    const el = document.getElementById("chart"); el.querySelectorAll("svg,.cap").forEach(x => x.remove()); drawChart(d.decades); }, 150); });
+  table(d.cities);
+});
+
+function drawChart(rows) {
+  const el0 = document.getElementById("chart");
+  const W = Math.max(300, el0.clientWidth - 32), H = W < 500 ? 220 : 260, m = { t: 22, r: 8, b: 28, l: 40 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(...rows.map(r => r.features));
+  const top = Math.ceil(max / 500) * 500;
+  const band = iw / rows.length, bw = Math.min(24, band * 0.6);
+  const y = v => m.t + ih - v / top * ih;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="決定した年代別の計画道路の区間数">`;
+  for (let v = 0; v <= top; v += 500) {
+    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--grid")}" stroke-width="1"/>`;
+    svg += `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  rows.forEach((r, i) => {
+    const cx = m.l + band * i + band / 2, x = cx - bw / 2, h = r.features / top * ih, yy = m.t + ih - h, rr = Math.min(4, h);
+    const path = `M${x},${m.t + ih} V${yy + rr} Q${x},${yy} ${x + rr},${yy} H${x + bw - rr} Q${x + bw},${yy} ${x + bw},${yy + rr} V${m.t + ih} Z`;
+    svg += `<path d="${path}" fill="${css("--bar")}"/>`;
+    svg += `<rect class="hit" x="${m.l + band * i}" y="${m.t}" width="${band}" height="${ih}" fill="transparent" data-i="${i}"/>`;
+    if (band >= 52 || i % 2 === 0) svg += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${band >= 52 ? r.decade + "年代" : "'" + String(r.decade).slice(2)}</text>`;
+    if (r.features === max) svg += `<text class="val" x="${cx}" y="${yy - 6}" text-anchor="middle">${fmt(r.features)}</text>`;
+  });
+  svg += `</svg>`;
+  const el = document.getElementById("chart"), tip = document.getElementById("tip");
+  el.insertAdjacentHTML("beforeend", svg);
+  el.insertAdjacentHTML("beforeend", `<div class="cap">最多は ${rows.find(r => r.features === max).decade}年代（${fmt(max)} 区間）。1940年代以前の区間：${fmt(rows.filter(r => r.decade < 1950).reduce((a, r) => a + r.features, 0))}</div>`);
+  el.querySelectorAll(".hit").forEach(h => {
+    h.addEventListener("mousemove", e => {
+      const r = rows[+h.dataset.i], b = el.getBoundingClientRect();
+      tip.style.display = "block"; tip.innerHTML = `<b>${r.decade}年代</b>：${fmt(r.features)} 区間`;
+      tip.style.left = Math.min(e.clientX - b.left + 12, b.width - 140) + "px"; tip.style.top = (e.clientY - b.top - 30) + "px";
+    });
+    h.addEventListener("mouseleave", () => tip.style.display = "none");
+  });
+}
+
+function table(rows) {
+  const tb = document.querySelector("#tbl tbody");
+  const meter = x => `<div class="cell"><div class="meter" title="${pct(x)}"><i style="width:${Math.round((x || 0) * 100)}%"></i></div>${pct(x)}</div>`;
+  const render = list => tb.innerHTML = list.map(c => `<tr>
+    <td>${esc(c.pref)}</td><td>${esc(c.city)}</td><td class="num">${fmt(c.features)}</td>
+    <td class="num">${c.median_age == null ? "–" : c.median_age + "年以上"}</td><td>${meter(c.p50)}</td><td>${meter(c.p70)}</td>
+    <td class="num">${c.oldest ?? "–"}</td><td>${c.map ? `<a href="index.html?city=${esc(c.code)}">地図</a>` : ""}</td></tr>`).join("");
+  let key = "p70", dir = -1;
+  render(rows);
+  document.querySelectorAll("#tbl th").forEach(th => th.onclick = () => {
+    const k = th.dataset.k; dir = k === key ? -dir : (["pref", "city", "oldest"].includes(k) ? 1 : -1); key = k;
+    document.querySelectorAll("#tbl th").forEach(x => x.removeAttribute("aria-sort"));
+    th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
+    render([...rows].sort((a, b) => {
+      const va = a[k] ?? (dir > 0 ? Infinity : -Infinity), vb = b[k] ?? (dir > 0 ? Infinity : -Infinity);
+      return (typeof va === "string" ? va.localeCompare(vb, "ja") : va - vb) * dir;
+    }));
+  });
+}
+</script>
+</body>
+</html>
